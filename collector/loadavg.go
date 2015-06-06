@@ -4,7 +4,6 @@ package collector
 
 import (
 	"fmt"
-	"io/ioutil"
 	"strconv"
 	"strings"
 
@@ -47,16 +46,18 @@ func (c *loadavgCollector) Update(ch chan<- prometheus.Metric) (err error) {
 	return err
 }
 
-func getLoad1() (float64, error) {
-	data, err := ioutil.ReadFile(procLoad)
+func parseLoadLinux(data string) (float64, error) {
+	parts := strings.Fields(data)
+	load, err := strconv.ParseFloat(parts[0], 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("Could not parse load '%s': %s", parts[0], err)
 	}
-	return parseLoad(string(data))
+	return load, nil
 }
 
-func parseLoad(data string) (float64, error) {
-	parts := strings.Fields(data)
+func parseLoadFreeBSD(data string) (float64, error) {
+	cleaned := strings.Trim(data, "{} ")
+	parts := strings.Fields(cleaned)
 	load, err := strconv.ParseFloat(parts[0], 64)
 	if err != nil {
 		return 0, fmt.Errorf("Could not parse load '%s': %s", parts[0], err)
