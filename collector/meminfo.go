@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -57,17 +56,7 @@ func (c *meminfoCollector) Update(ch chan<- prometheus.Metric) (err error) {
 	return err
 }
 
-func getMemInfo() (map[string]float64, error) {
-	file, err := os.Open(procMemInfo)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	return parseMemInfo(file)
-}
-
-func parseMemInfo(r io.Reader) (map[string]float64, error) {
+func parseMemInfoLinux(r io.Reader) (map[string]float64, error) {
 	var (
 		memInfo = map[string]float64{}
 		scanner = bufio.NewScanner(r)
@@ -91,6 +80,41 @@ func parseMemInfo(r io.Reader) (map[string]float64, error) {
 		key := parts[0][:len(parts[0])-1] // remove trailing : from key
 		// Active(anon) -> Active_anon
 		key = re.ReplaceAllString(key, "_${1}")
+
+		memInfo[key] = fv
+	}
+
+	return memInfo, nil
+}
+
+func parseMemInfoFreeBSD(r io.Reader) (map[string]float64, error) {
+	var (
+		memInfo = map[string]float64{}
+		scanner = bufio.NewScanner(r)
+		re      = regexp.MustCompile("\\((.*)\\)")
+	)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Fields(string(line))
+		fv, err := strconv.ParseFloat(parts[1], 64)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid value in meminfo: %s", err)
+		}
+		switch len(parts) {
+		case 2: // no unit
+		case 3: // has unit, we presume kB
+			fv *= 1024
+		default:
+			return nil, fmt.Errorf("Invalid line in %s: %s", procMemInfo, line)
+		}
+		key := parts[0][:len(parts[0])-1] // remove trailing : from key
+		// Active(anon) -> Active_anon
+		key = re.ReplaceAllString(key, "_${1}")
+		key = strings.Replace(key, ".", "_", -1)
+
+		log.Debug("Key:", key)
+
 		memInfo[key] = fv
 	}
 
